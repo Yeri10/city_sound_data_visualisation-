@@ -1,38 +1,10 @@
-let liveVideo = null;
-let liveReady = false;
-
-let fileVideo = null;
-let fileReady = false;
+// sketch.js
+// Handles p5 setup, HUD interaction, and rendering by combining persisted feature data with the visual layer.
 let DEMO_VISUAL = false; // Preview with synthetic values when true; use real audio when false.
+let autoStartRequested = false;
+let drawError = "";
+let hudRefs = null;
 
-let activeSource = "file";
-
-let liveAudio = {
-  ctx: null,
-  source: null,
-  analyser: null,
-  freq: null,
-  stream: null,
-  ready: false,
-};
-
-let fileAudio = {
-  ctx: null,
-  source: null,
-  analyser: null,
-  freq: null,
-  silentGain: null,
-  ready: false,
-};
-
-let lastSent = 0;
-const INTERVAL = 100;
-let recording = true;
-
-let appendCount = 0;
-let lastAppendError = "";
-let lastAppendAt = "-";
-let initError = "";
 let visualFeat = {
   noise: 0,
   threshold: 60,
@@ -41,87 +13,90 @@ let visualFeat = {
   high: 0,
 };
 
-const VIDEO_PATH = "/City_Sound/subway.mp4";
-
 function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+  initHud();
+  requestAutoStart();
 }
 
-function resizeMediaSources() {
-  if (liveVideo) liveVideo.size(width, height);
-  if (fileVideo) fileVideo.size(width, height);
+function requestAutoStart() {
+  if (autoStartRequested) return;
+  autoStartRequested = true;
+  window.setTimeout(() => {
+    void window.CaptureBridge.startCapture(width, height);
+  }, 0);
 }
 
-function getSourceState(sourceKey = activeSource) {
-  if (sourceKey === "live") {
-    return {
-      video: liveVideo,
-      ready: liveReady,
-      audio: liveAudio,
-      label: "live camera",
-      recordSource: "live_cam",
-    };
+function initHud() {
+  hudRefs = {
+    append: document.getElementById("hud-append"),
+    appendError: document.getElementById("hud-append-error"),
+    buttons: Array.from(document.querySelectorAll(".hud__button[data-source]")),
+    error: document.getElementById("hud-error"),
+    source: document.getElementById("hud-source"),
+    status: document.getElementById("hud-status"),
+  };
+
+  for (const button of hudRefs.buttons) {
+    button.addEventListener("click", async () => {
+      window.CaptureBridge.setActiveSource(button.dataset.source);
+      syncHudSourceButtons();
+      await window.CaptureBridge.startCapture(width, height);
+    });
   }
 
-  return {
-    video: fileVideo,
-    ready: fileReady,
-    audio: fileAudio,
-    label: "subway.mp4",
-    recordSource: "subway_mp4",
-  };
+  syncHudSourceButtons();
 }
 
-function audioFeatures(sourceKey = activeSource) {
-  const state = getSourceState(sourceKey);
-  const audio = state.audio;
+function syncHudSourceButtons() {
+  if (!hudRefs) return;
+  const activeSource = window.CaptureBridge.getActiveSource();
 
-  if (!audio.ready || !audio.analyser || !audio.freq) {
-    return { noise: 0, threshold: 60, low: 0, mid: 0, high: 0 };
+  for (const button of hudRefs.buttons) {
+    button.classList.toggle("is-active", button.dataset.source === activeSource);
+  }
+}
+
+function updateHud(state, status, visibleError) {
+  if (!hudRefs) return;
+
+  hudRefs.source.textContent = state.label;
+  hudRefs.status.textContent = state.ready ? "ready" : "click/tap to initialize";
+  hudRefs.append.textContent = `${status.appendCount} | last: ${status.lastAppendAt}`;
+
+  if (status.lastAppendError) {
+    hudRefs.appendError.hidden = false;
+    hudRefs.appendError.textContent = `append error: ${status.lastAppendError}`;
+  } else {
+    hudRefs.appendError.hidden = true;
+    hudRefs.appendError.textContent = "";
   }
 
-  audio.analyser.getByteFrequencyData(audio.freq);
+  if (visibleError) {
+    hudRefs.error.hidden = false;
+    hudRefs.error.textContent = `init error: ${visibleError}`;
+  } else {
+    hudRefs.error.hidden = true;
+    hudRefs.error.textContent = "";
+  }
 
-  let mean = 0;
-  for (let i = 0; i < audio.freq.length; i++) mean += audio.freq[i];
-  mean /= audio.freq.length;
-
-  const low = bandEnergy(audio, audio.freq, 20, 200);
-  const mid = bandEnergy(audio, audio.freq, 200, 2000);
-  const high = bandEnergy(audio, audio.freq, 2000, 8000);
-
-  const energy = mean / 255;
-  const sumBands = low + mid + high + 1e-6;
-  const hiss = high / sumBands;
-  const noise = clamp(0.6 * energy + 0.4 * hiss, 0, 1);
-
-  return {
-    noise,
-    threshold: 60 + noise * 140,
-    low: low * 255,
-    mid: mid * 255,
-    high: high * 255,
-  };
-}
-
-function bandEnergy(audio, spec, fromHz, toHz) {
-  if (!audio.ctx) return 0;
-
-  const nyq = audio.ctx.sampleRate / 2;
-  const n = spec.length;
-  const from = clamp(Math.floor((fromHz / nyq) * n), 0, n - 1);
-  const to = clamp(Math.floor((toHz / nyq) * n), 0, n - 1);
-
-  if (to <= from) return 0;
-
-  let sum = 0;
-  for (let i = from; i <= to; i++) sum += spec[i];
-  return sum / (to - from + 1) / 255;
+  syncHudSourceButtons();
 }
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function jsonFeatures() {
+  const feat = window.FEAT || {};
+  return {
+    noise: Number(feat.noise ?? 0),
+    threshold: Number(feat.threshold ?? 60),
+    low: Number(feat.low ?? 0),
+    mid: Number(feat.mid ?? 0),
+    high: Number(feat.high ?? 0),
+  };
 }
 
 function smoothFeatures(next) {
@@ -133,253 +108,40 @@ function smoothFeatures(next) {
   return { ...visualFeat };
 }
 
-function setInitError(message) {
-  if (!message || initError) return;
-  initError = message;
-}
-
-function needsSecureMediaContext() {
-  const host = window.location.hostname;
-  const isLocalHost = host === "localhost" || host === "127.0.0.1";
-  return !window.isSecureContext && !isLocalHost;
-}
-
-async function ensureLiveVideo() {
-  if (liveVideo) return;
-
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("camera API unavailable on this device/browser");
-  }
-  if (needsSecureMediaContext()) {
-    throw new Error("live camera on mobile requires HTTPS or localhost");
-  }
-
-  liveVideo = createCapture(VIDEO, () => {
-    liveReady = true;
-  });
-  liveVideo.size(width, height);
-  liveVideo.hide();
-  liveVideo.elt.playsInline = true;
-  liveVideo.elt.setAttribute("playsinline", "true");
-  liveVideo.elt.setAttribute("webkit-playsinline", "true");
-}
-
-async function ensureFileVideo() {
-  if (fileVideo) return;
-
-  fileVideo = createVideo([VIDEO_PATH]);
-  fileVideo.size(width, height);
-  fileVideo.hide();
-  fileVideo.volume(1);
-  fileVideo.elt.loop = true;
-  fileVideo.elt.playsInline = true;
-  fileVideo.elt.setAttribute("playsinline", "true");
-  fileVideo.elt.setAttribute("webkit-playsinline", "true");
-  fileVideo.elt.preload = "auto";
-
-  await new Promise((resolve, reject) => {
-    if (fileVideo.elt.readyState >= 2) {
-      fileReady = true;
-      resolve();
-      return;
-    }
-
-    const onReady = () => {
-      fileReady = true;
-      resolve();
-    };
-    const onError = () => reject(new Error("failed to load subway.mp4"));
-
-    fileVideo.elt.addEventListener("loadeddata", onReady, { once: true });
-    fileVideo.elt.addEventListener("error", onError, { once: true });
-  });
-}
-
-async function ensureLiveAudio() {
-  if (liveAudio.ready) {
-    if (liveAudio.ctx && liveAudio.ctx.state === "suspended") {
-      await liveAudio.ctx.resume();
-    }
-    return;
-  }
-
-  try {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("microphone API unavailable on this device/browser");
-    }
-    if (needsSecureMediaContext()) {
-      throw new Error("live microphone on mobile requires HTTPS or localhost");
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-
-    liveAudio.ctx = new AudioCtx();
-    if (liveAudio.ctx.state === "suspended") await liveAudio.ctx.resume();
-
-    liveAudio.stream = stream;
-    liveAudio.source = liveAudio.ctx.createMediaStreamSource(stream);
-    liveAudio.analyser = liveAudio.ctx.createAnalyser();
-    liveAudio.analyser.fftSize = 2048;
-    liveAudio.analyser.smoothingTimeConstant = 0.85;
-    liveAudio.source.connect(liveAudio.analyser);
-    liveAudio.freq = new Uint8Array(liveAudio.analyser.frequencyBinCount);
-    liveAudio.ready = true;
-  } catch (e) {
-    lastAppendError = `live audio unavailable: ${e?.message || "permission denied"}`;
-  }
-}
-
-async function ensureFileAudio() {
-  if (!fileVideo || !fileReady) return;
-
-  if (fileAudio.ready) {
-    if (fileAudio.ctx && fileAudio.ctx.state === "suspended") {
-      await fileAudio.ctx.resume();
-    }
-    return;
-  }
-
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-
-    fileAudio.ctx = new AudioCtx();
-    if (fileAudio.ctx.state === "suspended") await fileAudio.ctx.resume();
-
-    fileAudio.source = fileAudio.ctx.createMediaElementSource(fileVideo.elt);
-    fileAudio.analyser = fileAudio.ctx.createAnalyser();
-    fileAudio.analyser.fftSize = 2048;
-    fileAudio.analyser.smoothingTimeConstant = 0.85;
-    fileAudio.silentGain = fileAudio.ctx.createGain();
-    fileAudio.silentGain.gain.value = 0;
-
-    fileAudio.source.connect(fileAudio.analyser);
-    fileAudio.analyser.connect(fileAudio.silentGain);
-    fileAudio.silentGain.connect(fileAudio.ctx.destination);
-    fileAudio.freq = new Uint8Array(fileAudio.analyser.frequencyBinCount);
-    fileAudio.ready = true;
-  } catch (e) {
-    lastAppendError = `file audio unavailable: ${e?.message || "audio init failed"}`;
-  }
-}
-
-async function startCapture() {
-  initError = "";
-
-  try {
-    await userStartAudio();
-  } catch (e) {
-    initError = e?.message || "capture init failed";
-    console.error(e);
-    return;
-  }
-
-  try {
-    await ensureFileVideo();
-  } catch (e) {
-    setInitError(e?.message || "subway.mp4 init failed");
-    console.error(e);
-  }
-
-  if (fileVideo && fileReady && fileVideo.elt) {
-    try {
-      await fileVideo.elt.play();
-    } catch (e) {
-      setInitError(e?.message || "subway.mp4 play failed");
-      console.error(e);
-    }
-  }
-
-  try {
-    await ensureFileAudio();
-  } catch (e) {
-    setInitError(e?.message || "file audio init failed");
-    console.error(e);
-  }
-
-  if (activeSource !== "live") return;
-
-  try {
-    await ensureLiveVideo();
-  } catch (e) {
-    setInitError(e?.message || "live camera init failed");
-    console.error(e);
-  }
-
-  try {
-    await ensureLiveAudio();
-  } catch (e) {
-    setInitError(e?.message || "live audio init failed");
-    console.error(e);
-  }
-}
-
 function draw() {
   background(0);
 
   try {
-    const state = getSourceState();
-
-    // Use one feature shape in both modes: demo first, then switch to live audio.
-    const raw = DEMO_VISUAL ? demoFeatures() : audioFeatures(activeSource);
+    drawError = "";
+    const state = window.CaptureBridge.getSourceState();
+    const detected = DEMO_VISUAL ? demoFeatures() : window.CaptureBridge.getDetectedFeatures();
+    const raw = DEMO_VISUAL ? detected : jsonFeatures();
     const a = smoothFeatures(raw);
 
-    // ---- VISUAL (only when video is ready) ----
     if (state.video && state.video.elt && state.video.elt.readyState >= 2) {
-      // Render the opaque block collage.
       window.Visual.drawLayeredBlocks(state.video, a, {
-        showPaperGrid: true,  // Set to false for a cleaner background.
-      });
-
-      // Refresh ready flags once the source can render.
-      if (activeSource === "live") liveReady = true;
-      if (activeSource === "file") fileReady = true;
-    }
-
-    // ---- RECORD (same `a` as visual) ----
-    if (recording && state.ready && millis() - lastSent > INTERVAL) {
-      lastSent = millis();
-
-      appendRecord({
-        t: Number((millis() / 1000).toFixed(3)),
-        source: state.recordSource,
-        noise: a.noise,
-        threshold: a.threshold,
-        low: a.low,
-        mid: a.mid,
-        high: a.high,
+        showPaperGrid: true,
       });
     }
 
-    fill(0, 180);
-    noStroke();
-    rect(0, 0, width, 82);
-    fill(255);
-    textSize(14);
-    text(`source: ${state.label} | press 1 = live, 2 = file`, 12, 22);
-    text(`status: ${state.ready ? "ready" : "click/tap to initialize"}`, 12, 42);
-    text(`append ok: ${appendCount} | last: ${lastAppendAt}`, 12, 62);
+    window.CaptureBridge.recordDetected(detected, millis());
 
-    if (lastAppendError) {
-      fill(255, 120, 120);
-      text(`append error: ${lastAppendError}`, 280, 62);
-    }
-
-    if (initError) {
-      fill(255, 120, 120);
-      text(`init error: ${initError}`, 12, 104);
-    }
+    const status = window.CaptureBridge.getStatus();
+    const visibleError = status.initError || drawError;
+    updateHud(state, status, visibleError);
   } catch (e) {
-    initError = e?.message || "draw failed";
+    drawError = e?.message || "draw failed";
   }
 }
 
 async function mousePressed() {
-  await startCapture();
+  await window.CaptureBridge.startCapture(width, height);
+  return false;
 }
 
 async function touchStarted() {
-  await startCapture();
+  await window.CaptureBridge.startCapture(width, height);
+  return false;
 }
 
 async function keyPressed() {
@@ -394,47 +156,17 @@ async function keyPressed() {
     return;
   }
 
-  if (key === "1") activeSource = "live";
-  if (key === "2") activeSource = "file";
-  await startCapture();
+  if (key === "1") window.CaptureBridge.setActiveSource("live");
+  if (key === "2") window.CaptureBridge.setActiveSource("file");
+  await window.CaptureBridge.startCapture(width, height);
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  resizeMediaSources();
-}
-
-async function appendRecord(record) {
-  try {
-    const res = await fetch("/api/append", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(record),
-    });
-
-    if (!res.ok) {
-      lastAppendError = `HTTP ${res.status}`;
-      return;
-    }
-
-    const data = await res.json();
-    appendCount = Number(data.count ?? appendCount + 1);
-    lastAppendAt = new Date().toLocaleTimeString();
-
-    if (
-      !String(lastAppendError).startsWith("live audio unavailable") &&
-      !String(lastAppendError).startsWith("file audio unavailable")
-    ) {
-      lastAppendError = "";
-    }
-  } catch (e) {
-    lastAppendError = e?.message || "network error";
-    console.error("append failed", e);
-  }
+  window.CaptureBridge.resizeMedia(width, height);
 }
 
 function demoFeatures() {
-  // Mouse X drives noise, mouse Y drives highs, and time drives mids/lows.
   const nx = clamp(mouseX / width, 0, 1);
   const hy = clamp(1 - mouseY / height, 0, 1);
   const t = millis() * 0.001;
@@ -447,6 +179,8 @@ function demoFeatures() {
   return {
     noise,
     threshold: 60 + noise * 140,
-    low, mid, high,
+    low,
+    mid,
+    high,
   };
 }

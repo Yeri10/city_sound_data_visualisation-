@@ -1,4 +1,8 @@
 <!DOCTYPE html>
+<!--
+  index.html
+  Declares the app shell, HUD container, and script load order for the visualization frontend.
+-->
 <html lang="en">
   <head>
     <script src="p5.js"></script>
@@ -8,11 +12,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   </head>
   <body>
-    <main>
+    <main class="app-shell">
+      <section class="hud" id="hud">
+        <div class="hud__status">
+          <p class="hud__line">
+            <span class="hud__label">Source</span>
+            <span id="hud-source">loading</span>
+          </p>
+          <p class="hud__line">
+            <span class="hud__label">Status</span>
+            <span id="hud-status">initializing</span>
+          </p>
+          <p class="hud__line">
+            <span class="hud__label">Append</span>
+            <span id="hud-append">0</span>
+          </p>
+          <p class="hud__line hud__line--error" id="hud-append-error" hidden></p>
+          <p class="hud__line hud__line--error" id="hud-error" hidden></p>
+        </div>
+        <div class="hud__controls" role="group" aria-label="Source selection">
+          <button type="button" class="hud__button" data-source="live">Live</button>
+          <button type="button" class="hud__button" data-source="file">File</button>
+        </div>
+      </section>
     </main>
-<script src="sound.js"></script>
-<script src="visual.js"></script>
-<script src="sketch.js"></script>
-<script src="dataBridge.js"></script>
+    <script src="sound.js"></script>
+    <script src="capture.js"></script>
+    <script src="visual.js"></script>
+    <script src="dataBridge.js"></script>
+    <script src="sketch.js"></script>
   </body>
 </html>

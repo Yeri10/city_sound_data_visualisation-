@@ -1,5 +1,5 @@
-// public/visual.js
-// Opaque Pixel Blocks (IDEA-cover style): hard grid + bold palette + patterns
+// visual.js
+// Draws the main canvas visualization using video pixels plus the current feature values.
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }

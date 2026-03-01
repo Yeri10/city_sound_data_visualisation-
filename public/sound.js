@@ -1,170 +1,147 @@
-// public/sound.js
-// Realtime camera + audio (single MediaStream) -> AnalyserNode -> features
+// sound.js
+// Provides the shared audio analysis helpers used to turn live/file audio into feature values.
+window.SoundBridge = (() => {
+  let sharedCtx = null;
 
-class RealtimeCamAudioAnalyser {
-  constructor(opts = {}) {
-    this.fftSize = opts.fftSize ?? 2048;
-    this.smoothing = opts.smoothing ?? 0.85;
-
-    this.thresholdMin = opts.thresholdMin ?? 60;
-    this.thresholdMax = opts.thresholdMax ?? 200;
-    this.ctx = null;
-    this.stream = null;
-
-    this.videoEl = null;   // HTMLVideoElement that plays the stream
-    this.source = null;    // MediaStreamSource
-    this.analyser = null;  // AnalyserNode
-    this.freq = null;      // Uint8Array
-
-    this.ready = false;
-    this.audioEnabled = true;
-
-    // smoothed outputs
-    this._noise = 0;
-    this._thr = 128;
+  function createState() {
+    return {
+      ctx: null,
+      source: null,
+      analyser: null,
+      freq: null,
+      silentGain: null,
+      stream: null,
+      ready: false,
+    };
   }
 
-  // Must be called after user gesture (e.g., mousePressed) to avoid autoplay restrictions
-  async init() {
-    if (this.ready) return;
+  async function getContext(existingCtx = null) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    sharedCtx = existingCtx ?? sharedCtx ?? new AudioCtx();
 
-    // 1) request camera+mic stream, fallback to video-only
+    if (sharedCtx.state === "suspended") {
+      await sharedCtx.resume();
+    }
+
+    return sharedCtx;
+  }
+
+  function resetState(state) {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      this.audioEnabled = true;
-    } catch (_err) {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false,
-      });
-      this.audioEnabled = false;
-    }
+      state.source?.disconnect();
+    } catch (e) {}
 
-    // 2) create a video element to play the stream (for pixels)
-    this.videoEl = document.createElement("video");
-    this.videoEl.autoplay = true;
-    this.videoEl.muted = true;        // avoid feedback (your speakers -> mic)
-    this.videoEl.playsInline = true;  // iOS friendly
-    this.videoEl.setAttribute("playsinline", "true");
-    this.videoEl.srcObject = this.stream;
-
-    // wait until metadata is ready (width/height become available)
-    await new Promise((resolve) => {
-      this.videoEl.onloadedmetadata = () => resolve();
-    });
     try {
-      await this.videoEl.play();
-    } catch (_e) {
-      // On some browsers play() may still require a user gesture.
-      // sketch.js startCapture is called from click/touch/key.
-    }
+      state.analyser?.disconnect();
+    } catch (e) {}
 
-    // 3) setup Web Audio analyser (if audio track is available)
-    if (this.audioEnabled) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      this.ctx = RealtimeCamAudioAnalyser.sharedCtx ?? new AudioCtx();
-      RealtimeCamAudioAnalyser.sharedCtx = this.ctx;
+    try {
+      state.silentGain?.disconnect();
+    } catch (e) {}
 
-      this.source = this.ctx.createMediaStreamSource(this.stream);
-
-      this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = this.fftSize;
-      this.analyser.smoothingTimeConstant = this.smoothing;
-
-      this.source.connect(this.analyser);
-
-      this.freq = new Uint8Array(this.analyser.frequencyBinCount);
-    } else {
-      this.ctx = null;
-      this.source = null;
-      this.analyser = null;
-      this.freq = null;
-    }
-    this.ready = true;
+    state.source = null;
+    state.analyser = null;
+    state.freq = null;
+    state.silentGain = null;
+    state.ready = false;
   }
 
-  // expose video element for drawing in p5: image(videoEl, ...)
-  getVideoElement() {
-    return this.videoEl;
+  function ensureAnalyser(state, ctx) {
+    state.ctx = ctx;
+    state.analyser = ctx.createAnalyser();
+    state.analyser.fftSize = 2048;
+    state.analyser.smoothingTimeConstant = 0.85;
+    state.freq = new Uint8Array(state.analyser.frequencyBinCount);
   }
 
-  // stop camera/mic when you’re done
-  dispose() {
-    try { if (this.source) this.source.disconnect(); } catch (e) {}
-    try { if (this.analyser) this.analyser.disconnect(); } catch (e) {}
+  async function attachStream(state, stream) {
+    const ctx = await getContext(state.ctx);
+    resetState(state);
 
-    if (this.stream) {
-      // stop all tracks
-      this.stream.getTracks().forEach((t) => t.stop());
+    state.stream = stream;
+    state.source = ctx.createMediaStreamSource(stream);
+    ensureAnalyser(state, ctx);
+    state.source.connect(state.analyser);
+    state.ready = true;
+    return state;
+  }
+
+  async function attachMediaElement(state, element) {
+    const ctx = await getContext(state.ctx);
+
+    if (state.ready && state.source && state.analyser && state.freq) {
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      return state;
     }
 
-    this.stream = null;
-    this.videoEl = null;
-    this.source = null;
-    this.analyser = null;
-    this.freq = null;
-    this.ready = false;
+    resetState(state);
+
+    state.source = ctx.createMediaElementSource(element);
+    ensureAnalyser(state, ctx);
+    state.silentGain = ctx.createGain();
+    state.silentGain.gain.value = 0;
+
+    state.source.connect(state.analyser);
+    state.analyser.connect(state.silentGain);
+    state.silentGain.connect(ctx.destination);
+    state.ready = true;
+    return state;
   }
 
-  _lerp(a, b, t) { return a + (b - a) * t; }
-  _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
 
-  _bandEnergy(spec, fromHz, toHz) {
-    const nyq = this.ctx.sampleRate / 2;
+  function bandEnergy(state, spec, fromHz, toHz) {
+    if (!state.ctx) return 0;
+
+    const nyq = state.ctx.sampleRate / 2;
     const n = spec.length;
-    const from = this._clamp(Math.floor((fromHz / nyq) * n), 0, n - 1);
-    const to = this._clamp(Math.floor((toHz / nyq) * n), 0, n - 1);
+    const from = clamp(Math.floor((fromHz / nyq) * n), 0, n - 1);
+    const to = clamp(Math.floor((toHz / nyq) * n), 0, n - 1);
+
     if (to <= from) return 0;
 
     let sum = 0;
     for (let i = from; i <= to; i++) sum += spec[i];
-    return sum / (to - from + 1); // 0..255
+    return sum / (to - from + 1) / 255;
   }
 
-  update() {
-    if (!this.ready) return null;
-    if (!this.audioEnabled || !this.analyser || !this.freq) {
-      return {
-        noise: 0,
-        threshold: this.thresholdMin,
-        low: 0, mid: 0, high: 0,
-      };
+  function readFeatures(state) {
+    if (!state?.ready || !state.analyser || !state.freq) {
+      return { noise: 0, threshold: 60, low: 0, mid: 0, high: 0 };
     }
 
-    this.analyser.getByteFrequencyData(this.freq);
+    state.analyser.getByteFrequencyData(state.freq);
 
-    // overall energy 0..1
     let mean = 0;
-    for (let i = 0; i < this.freq.length; i++) mean += this.freq[i];
-    mean /= this.freq.length;       // 0..255
+    for (let i = 0; i < state.freq.length; i++) mean += state.freq[i];
+    mean /= state.freq.length;
+
+    const low = bandEnergy(state, state.freq, 20, 200);
+    const mid = bandEnergy(state, state.freq, 200, 2000);
+    const high = bandEnergy(state, state.freq, 2000, 8000);
+
     const energy = mean / 255;
+    const sumBands = low + mid + high + 1e-6;
+    const hiss = high / sumBands;
+    const noise = clamp(0.6 * energy + 0.4 * hiss, 0, 1);
 
-    // bands 0..1
-    const lowE = this._bandEnergy(this.freq, 20, 200) / 255;
-    const midE = this._bandEnergy(this.freq, 200, 2000) / 255;
-    const highE = this._bandEnergy(this.freq, 2000, 8000) / 255;
-
-    const sumBands = lowE + midE + highE + 1e-6;
-    const hiss = highE / sumBands;
-
-    // noise proxy
-    const noiseRaw = this._clamp(0.6 * energy + 0.4 * hiss, 0, 1);
-    this._noise = this._lerp(noiseRaw, this._noise, 0.9);
-
-    // map to threshold
-    const thrTarget = this._lerp(this.thresholdMin, this.thresholdMax, this._noise);
-    this._thr = this._lerp(thrTarget, this._thr, 0.85);
-
-    // return smoothed features
     return {
-      noise: this._noise,       // 0..1
-      threshold: this._thr,     // 0..255
-      low: lowE * 255,
-      mid: midE * 255,
-      high: highE * 255,
+      noise,
+      threshold: 60 + noise * 140,
+      low: low * 255,
+      mid: mid * 255,
+      high: high * 255,
     };
   }
-}
+
+  return {
+    attachMediaElement,
+    attachStream,
+    createState,
+    readFeatures,
+  };
+})();

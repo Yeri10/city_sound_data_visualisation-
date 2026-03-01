@@ -1,5 +1,5 @@
-// public/dataBridge.js
-// Convert backend JSON into the global window.FEAT object used by visual.js.
+// dataBridge.js
+// Polls the saved JSON endpoint and exposes the latest persisted feature values on window.FEAT.
 
 window.FEAT = {
   noise: 0,
@@ -8,7 +8,7 @@ window.FEAT = {
 };
 
 // Use fake data first if needed: true = synthetic data, false = real data.
-window.USE_FAKE_DATA = true;
+window.USE_FAKE_DATA = false;
 
 function pickLatest(payload) {
   if (!payload) return null;

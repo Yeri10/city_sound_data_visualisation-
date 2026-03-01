@@ -1,8 +1,132 @@
+/*
+  style.css
+  Styles the HTML/CSS interface layer, including the HUD overlay and global page layout.
+*/
 html, body {
   margin: 0;
   padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: #121212;
+  color: #f7f2ea;
+  font-family: "Avenir Next", "Helvetica Neue", sans-serif;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
 }
 
 canvas {
   display: block;
+}
+
+.hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(247, 242, 234, 0.18);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(22, 22, 22, 0.88), rgba(40, 18, 36, 0.78)),
+    rgba(10, 10, 10, 0.72);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.hud__status {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hud__line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(247, 242, 234, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud__label {
+  display: inline-block;
+  min-width: 58px;
+  margin-right: 8px;
+  color: rgba(247, 242, 234, 0.58);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.hud__line--error {
+  color: #ff9b9b;
+  white-space: normal;
+}
+
+.hud__controls {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.hud__button {
+  appearance: none;
+  border: 1px solid rgba(247, 242, 234, 0.18);
+  background: rgba(247, 242, 234, 0.06);
+  color: #f7f2ea;
+  border-radius: 999px;
+  padding: 10px 16px;
+  min-width: 78px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.hud__button:hover,
+.hud__button:focus-visible {
+  outline: none;
+  border-color: rgba(247, 242, 234, 0.34);
+  background: rgba(247, 242, 234, 0.12);
+  transform: translateY(-1px);
+}
+
+.hud__button.is-active {
+  border-color: rgba(247, 242, 234, 0.42);
+  background: linear-gradient(135deg, rgba(60, 220, 140, 0.34), rgba(255, 95, 210, 0.26));
+}
+
+@media (max-width: 720px) {
+  .hud {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hud__controls {
+    width: 100%;
+  }
+
+  .hud__button {
+    flex: 1;
+  }
+
+  .hud__line {
+    white-space: normal;
+  }
 }
