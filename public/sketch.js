@@ -44,8 +44,13 @@ let visualFeat = {
 const VIDEO_PATH = "/City_Sound/subway.mp4";
 
 function setup() {
-  createCanvas(800, 450);
+  createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+}
+
+function resizeMediaSources() {
+  if (liveVideo) liveVideo.size(width, height);
+  if (fileVideo) fileVideo.size(width, height);
 }
 
 function getSourceState(sourceKey = activeSource) {
@@ -133,8 +138,21 @@ function setInitError(message) {
   initError = message;
 }
 
+function needsSecureMediaContext() {
+  const host = window.location.hostname;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1";
+  return !window.isSecureContext && !isLocalHost;
+}
+
 async function ensureLiveVideo() {
   if (liveVideo) return;
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("camera API unavailable on this device/browser");
+  }
+  if (needsSecureMediaContext()) {
+    throw new Error("live camera on mobile requires HTTPS or localhost");
+  }
 
   liveVideo = createCapture(VIDEO, () => {
     liveReady = true;
@@ -143,6 +161,7 @@ async function ensureLiveVideo() {
   liveVideo.hide();
   liveVideo.elt.playsInline = true;
   liveVideo.elt.setAttribute("playsinline", "true");
+  liveVideo.elt.setAttribute("webkit-playsinline", "true");
 }
 
 async function ensureFileVideo() {
@@ -155,6 +174,7 @@ async function ensureFileVideo() {
   fileVideo.elt.loop = true;
   fileVideo.elt.playsInline = true;
   fileVideo.elt.setAttribute("playsinline", "true");
+  fileVideo.elt.setAttribute("webkit-playsinline", "true");
   fileVideo.elt.preload = "auto";
 
   await new Promise((resolve, reject) => {
@@ -184,6 +204,13 @@ async function ensureLiveAudio() {
   }
 
   try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("microphone API unavailable on this device/browser");
+    }
+    if (needsSecureMediaContext()) {
+      throw new Error("live microphone on mobile requires HTTPS or localhost");
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
 
@@ -248,13 +275,6 @@ async function startCapture() {
   }
 
   try {
-    await ensureLiveVideo();
-  } catch (e) {
-    setInitError(e?.message || "live camera init failed");
-    console.error(e);
-  }
-
-  try {
     await ensureFileVideo();
   } catch (e) {
     setInitError(e?.message || "subway.mp4 init failed");
@@ -271,16 +291,25 @@ async function startCapture() {
   }
 
   try {
-    await ensureLiveAudio();
+    await ensureFileAudio();
   } catch (e) {
-    setInitError(e?.message || "live audio init failed");
+    setInitError(e?.message || "file audio init failed");
+    console.error(e);
+  }
+
+  if (activeSource !== "live") return;
+
+  try {
+    await ensureLiveVideo();
+  } catch (e) {
+    setInitError(e?.message || "live camera init failed");
     console.error(e);
   }
 
   try {
-    await ensureFileAudio();
+    await ensureLiveAudio();
   } catch (e) {
-    setInitError(e?.message || "file audio init failed");
+    setInitError(e?.message || "live audio init failed");
     console.error(e);
   }
 }
@@ -371,9 +400,8 @@ async function keyPressed() {
 }
 
 function windowResized() {
-  if (fullscreen()) {
-    resizeCanvas(windowWidth, windowHeight);
-  }
+  resizeCanvas(windowWidth, windowHeight);
+  resizeMediaSources();
 }
 
 async function appendRecord(record) {
