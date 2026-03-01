@@ -91,7 +91,12 @@ window.CaptureBridge = (() => {
       throw new Error("live camera on mobile requires HTTPS or localhost");
     }
 
-    liveVideo = createCapture(VIDEO, () => {
+    liveVideo = createCapture({
+      video: {
+        facingMode: "environment",
+      },
+      audio: false,
+    }, () => {
       liveReady = true;
     });
     liveVideo.size(canvasWidth, canvasHeight);
