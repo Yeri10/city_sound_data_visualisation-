@@ -33,6 +33,7 @@ The current detected values and the current rendered values are intentionally se
 - visualization path: `data/session.json -> /api/data -> dataBridge.js -> sketch.js -> visual.js`
 
 ## Comparison chart of fixed parameters
+As noise increases, spatial resolution increases.
 <img width="2198" height="837" alt="73a21b8699d63b9fc023a2b6ceadc3f5" src="https://github.com/user-attachments/assets/fef4f6be-6094-43f9-b063-123489a1c82f" />
 
 ## Tech Stack
