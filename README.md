@@ -7,6 +7,19 @@ A small Express + p5.js project that captures audio features from either a live 
 - Yerie - sound side: `input -> analysis -> data`
 - Shuran - visual side: `data -> mapping -> render`
 
+## Conceptual Explanation
+
+Urban space is not only constructed visually, but sonically.
+While cities are often documented through photography and mapping, their acoustic structure remains less visible.
+
+This project translates urban sound into a modular graphic system.
+Instead of representing sound as waveform or frequency bars, the system reconstructs it as spatial fragmentation, structural instability, and emotional chromatic activation.
+
+Noise controls spatial resolution, mid-frequency energy destabilises the grid, and high-frequency intensity activates a conceptual pink layer — representing psychological tension embedded in contemporary urban environments.
+
+Through this translation, the city is no longer seen as a physical landscape, but as a dynamic data-driven surface.
+
+
 ## What It Does
 
 - `Live` mode uses the device camera for the image layer and the microphone for audio feature detection.
@@ -18,6 +31,9 @@ The current detected values and the current rendered values are intentionally se
 
 - detection path: `sound.js -> capture.js -> /api/append -> data/session.json`
 - visualization path: `data/session.json -> /api/data -> dataBridge.js -> sketch.js -> visual.js`
+
+## Comparison chart of fixed parameters
+<img width="2198" height="837" alt="73a21b8699d63b9fc023a2b6ceadc3f5" src="https://github.com/user-attachments/assets/fef4f6be-6094-43f9-b063-123489a1c82f" />
 
 ## Tech Stack
 
